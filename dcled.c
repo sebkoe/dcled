@@ -12,6 +12,7 @@
  * Glen Smith
  * Robert Flick
  * Stefan Misch
+ * Sebastian Köhler
  */
 
 #include <fcntl.h>
@@ -25,9 +26,10 @@
 #include <string.h>
 #include <getopt.h>
 #include <time.h>
-#include <hid.h>
+#include <hidapi/hidapi.h>
 #include <sys/select.h>
 #include <glob.h>
+#include <ctype.h>
 
 #define VENDOR 0x1d34
 #define PRODUCT 0x0013
@@ -75,9 +77,7 @@ struct ledfontlist {
 
 /* This is a basic definition of the led display. 0,0 is the upper left. */
 struct ledscreen {
-	HIDInterface *hid;
-	unsigned char path_in_len;
-	int *path_in;
+	hid_device *hid;
 	int brightness;
 	int scrolldelay;
 	int scrolldir;
@@ -195,8 +195,12 @@ void send_screen (struct ledscreen *disp) {
 		const unsigned int chunk_count = 4;
 		const unsigned int chunk_size = sizeof(bigpkt) / chunk_count;
 		int chunk;
+		int ret;
 		for (chunk=0;chunk<chunk_count;chunk++) {
-			hid_set_output_report(disp->hid, disp->path_in, disp->path_in_len, bigpkt+(chunk*chunk_size), chunk_size);
+			ret = hid_write(disp->hid, bigpkt+(chunk*chunk_size), chunk_size);
+			if(ret == -1) {
+				fprintf(stderr, "hid_write failed: %s\n",hid_error(disp->hid));
+			}
 		}
 	}
 
@@ -227,51 +231,15 @@ void clearscreen(int mode,struct ledscreen *disp) {
 }
 
 int open_hiddev(struct ledscreen *disp) {
-
-	/* Oh my oh my. Need to find the output report descriptor for the device.
-	 * Using the output of 'lsusb -d 1d34:0013 -vvv', one can determin that:
-	 *
-	 * The report descriptor usage page is 65280. The usage we want is #1.
-	 * Why?  Dunno!  Seems to work though.  That usage isnt rooted under any
-	 * items so the path length is 1.
-	 *
-	 * So to make an input path that works with libhid:
-	 *
-	 * ((65280 << 16) + 1) == 0xff000001 */
-
-	unsigned char const pathlen = 1;
-	const int PATH_IN[] = { 0xff000001 };
-	HIDInterface* hid = NULL;
-	hid_return ret;
-
-	/* go search for a matching device.  I'm not clear on how this works if
-	 * there is more than one message board installed.  -jsj */
-	HIDInterfaceMatcher leds = { VENDOR, PRODUCT, NULL, NULL, 0 };
-	if ((ret = hid_init()) != HID_RET_SUCCESS) { 
-		fprintf(stderr,"hid_init failed with return code %d\n",ret);
-		return EXIT_FAILURE; 
-	}
-	hid = hid_new_HIDInterface();
-	if (hid == NULL) { 
-		fprintf(stderr,"hid_new_HIDInterface() failed.\n",ret);
-		return EXIT_FAILURE; 
-	}
-	/* This call will forceably remove control of the device from the
-	 * kernel hid driver.  The fourth argument is the number of times the
-	 * call should try to close the device and snag it for our own devious
-	 * purposes before giving up.  It is what was used in the libhid
-	 * example code. */
-	if ((ret=hid_force_open(hid, 0, &leds, 3)) != HID_RET_SUCCESS) { 
-		fprintf(stderr,"hid_force_open failed with return code %d\n",ret);
+	hid_device* hid = NULL;
+	hid = hid_open(VENDOR, PRODUCT, NULL);
+	if (hid == NULL) {
+		fprintf(stderr, "hid_open failed: %s\n", hid_error(hid));
 		return EXIT_FAILURE;
 	}
 
 	disp->hid = hid;
-	disp->path_in_len = pathlen;
-	disp->path_in = (int*)malloc(pathlen * sizeof(int));
-	memcpy(disp->path_in,PATH_IN,pathlen * sizeof(int));
 	return(EXIT_SUCCESS);
-
 }
 
 
