@@ -15,7 +15,7 @@ DIST=dcled-$(DCLEDVERSION)
 CC=gcc
 
 CFLAGS= -g -O3 -DFONTDIR='$(FONTDIR)' -DDCLEDVERSION='$(DCLEDVERSION)'
-LDFLAGS= -g -lm -lhid
+LDFLAGS= -g -lm -lhidapi-libusb
  
 # You probaby dont need to change anything below this line...
  
